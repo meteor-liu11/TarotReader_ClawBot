@@ -1,0 +1,13 @@
+{
+  "id": "tarot-inbound-guard",
+  "name": "Tarot Inbound Guard",
+  "description": "Routes tarot-related WeChat messages through the local ClawBot service before normal model dispatch.",
+  "categories": ["other"],
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

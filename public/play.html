@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f654d">
+<title>塔罗 · 仪式</title>
+<link rel="stylesheet" href="/static/style.css?v=20261015-question-return-v4">
+</head>
+<body class="play-page">
+
+  <!-- 顶部只留牌阵，其它文字一律不要 -->
+  <header class="play-top">
+    <div class="now">
+      <div class="k" id="spread-kind">当前牌阵：四维关系牌阵</div>
+      <div class="v" id="spread-name">想一想你要问的事</div>
+      <div class="d" id="spread-desc">静下心，准备洗牌</div>
+    </div>
+    <button class="ghost" id="btn-spread">切换牌阵</button>
+  </header>
+
+  <div class="play-stage" id="stage">
+    <div id="fan-viewport" role="region" tabindex="0" aria-label="牌库，可在框内左右滑动浏览；轻触预选，确认后放入牌位，也可撤回重选"></div>
+    <div id="fan-label-layer" aria-hidden="true"></div>
+    <div id="slots"></div>
+    <div id="table"></div>
+    <div id="transit-layer" aria-hidden="true"></div>
+    <div class="cut-guides" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="play-float top" id="float-top"></div>
+    <div class="play-float bottom" id="float-bottom"></div>
+  </div>
+
+  <div class="play-actions">
+    <div class="play-stat" id="stat"></div>
+    <button class="ghost" id="btn-cancel-pick" type="button" hidden>撤回重选</button>
+    <button class="gold" id="btn-main" type="button">开始洗牌</button>
+  </div>
+
+  <!-- 牌阵抽屉 -->
+  <div class="sheet-backdrop" id="backdrop"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-grab"></div>
+    <h2>选择牌阵</h2>
+    <p class="sheet-sub">先选一个——后面洗牌、切牌、抽牌都跟着它走。</p>
+    <div id="spread-list"></div>
+  </div>
+
+<script type="module" src="/static/play.js?v=20261015-question-return-v4"></script>
+</body>
+</html>

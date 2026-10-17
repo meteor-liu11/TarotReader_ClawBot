@@ -1,0 +1,13 @@
+﻿data/
+node_modules/
+.work/
+.env
+*.log
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+._*
+
+*.tmp
+.manus-*

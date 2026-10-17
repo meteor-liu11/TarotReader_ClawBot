@@ -1,0 +1,20 @@
+{
+  "name": "tarot-clawbot-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "塔罗 ClawBot MVP Demo — 微信触发 → 网页抽卡 → 数据回传 → AI 解读回微信",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "verify": "node scripts/verify.mjs",
+    "play-smoke": "node scripts/play-smoke.mjs",
+    "ui-smoke": "node scripts/ui-smoke.mjs",
+    "seed-codes": "node scripts/seed-codes.mjs",
+    "reset": "node scripts/reset.mjs"
+  },
+  "dependencies": {}
+}

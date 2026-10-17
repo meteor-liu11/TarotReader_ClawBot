@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06080f">
+<title>塔罗 ClawBot · 联调控制台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="console">
+
+  <div class="console-head">
+    <h1>塔罗 ClawBot · 联调控制台</h1>
+    <span class="badge gold" id="badge-gateway">连接中…</span>
+    <span class="badge violet" id="badge-reading">—</span>
+  </div>
+  <p class="console-sub">
+    左边是<b>微信侧模拟器</b>，右边是<b>后端真实行为</b>。<br>
+    走的是完整闭环：意图识别 → 场景深挖 → 生成带 token 的抽卡链接 → 网页抽牌 →
+    数据回传 → 组装解读 → 投递回微信。
+  </p>
+
+  <div class="grid">
+
+    <!-- 左：微信模拟器 -->
+    <div class="card-panel">
+      <div class="panel-head">
+        <span>微信私聊（模拟）</span>
+        <span class="row">
+          <span class="badge" id="badge-allow">未放行</span>
+          <button id="btn-allow" style="padding:4px 11px;font-size:12px">放行</button>
+        </span>
+      </div>
+      <div class="panel-body" style="padding:13px">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-bar"><span class="dot"></span> 塔罗占卜师</div>
+            <div class="chat" id="chat"></div>
+            <div class="quick" id="quick"></div>
+            <form class="chat-input" id="form">
+              <input id="input" placeholder="给机器人发消息…" autocomplete="off">
+              <button class="gold" type="submit">发送</button>
+            </form>
+          </div>
+        </div>
+        <div class="row between mt t-small">
+          <span class="ink-3">peer id</span>
+          <code class="ink-3 mono" id="peer-id">—</code>
+          <button id="btn-reset" style="padding:4px 11px;font-size:11.5px">换个人</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：后端行为 -->
+    <div style="display:grid;gap:22px;min-width:0">
+      <div class="card-panel">
+        <div class="panel-head">
+          <span>投递到微信的 payload</span>
+          <span class="badge" id="badge-deliver">—</span>
+        </div>
+        <div class="panel-body">
+          <pre class="payload" id="payload">发一条「抽塔罗」开始。</pre>
+        </div>
+      </div>
+
+      <div class="card-panel">
+        <div class="panel-head">
+          <span>后端事件流</span>
+          <button id="btn-refresh" style="padding:4px 11px;font-size:11.5px">刷新</button>
+        </div>
+        <div class="panel-body">
+          <div class="log" id="log"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+let peerId = localStorage.getItem('demo.peerId');
+if (!peerId) {
+  peerId = 'wx_' + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('demo.peerId', peerId);
+}
+$('peer-id').textContent = peerId;
+
+const QUICK = [
+  '抽塔罗',
+  '帮我占卜一下工作',
+  '我和他异地，冷战两周了，还有可能吗',
+  '最近好迷茫，不知道要不要换工作',
+  '今天天气不错',
+];
+
+function bubble(text, kind = 'bot', link) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + kind;
+  el.textContent = text;
+  if (link) {
+    const a = document.createElement('a');
+    a.className = 'link';
+    a.href = link;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '→ 打开抽卡页面（新标签）';
+    el.appendChild(a);
+  }
+  $('chat').appendChild(el);
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
+
+for (const q of QUICK) {
+  const b = document.createElement('button');
+  b.textContent = q;
+  b.onclick = () => send(q);
+  $('quick').appendChild(b);
+}
+
+const api = async (path, opts) => {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+};
+
+async function allowPeer() {
+  const res = await api('/api/agent/whitelist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ peerId, allow: true }),
+  });
+  if (res.data.ok) {
+    $('badge-allow').textContent = '已放行';
+    $('badge-allow').className = 'badge green';
+    bubble('（系统）该用户已加入白名单', 'system');
+  }
+}
+
+async function send(text) {
+  if (!text.trim()) return;
+  bubble(text, 'user');
+  $('input').value = '';
+
+  const res = await api('/api/agent/inbound', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, peerId, nickname: 'Demo 用户' }),
+  });
+  const d = res.data;
+
+  if (d.allowed === false) {
+    $('badge-allow').textContent = '未放行';
+    $('badge-allow').className = 'badge red';
+    bubble(d.reply, 'bot');
+    bubble('（点上方「放行」按钮后再试一次）', 'system');
+  } else {
+    bubble(d.reply, 'bot', d.link);
+    if (d.link) bubble('（点了链接会新开标签页，模拟离开微信去网页抽牌）', 'system');
+  }
+  loadLog();
+  loadPayload();
+}
+
+$('form').addEventListener('submit', (e) => { e.preventDefault(); send($('input').value); });
+$('btn-allow').addEventListener('click', allowPeer);
+$('btn-refresh').addEventListener('click', () => { loadLog(); loadPayload(); });
+$('btn-reset').addEventListener('click', () => {
+  peerId = 'wx_' + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('demo.peerId', peerId);
+  $('peer-id').textContent = peerId;
+  $('badge-allow').textContent = '未放行';
+  $('badge-allow').className = 'badge';
+  $('badge-deliver').textContent = '—';
+  $('badge-deliver').className = 'badge';
+  $('payload').textContent = '这是一个新用户。先发一条消息，会看到「未放行」的拦截效果。';
+  greet();
+});
+
+async function loadLog() {
+  const res = await api('/api/events');
+  const evts = res.data.events ?? [];
+  const log = $('log');
+  log.innerHTML = '';
+  for (const e of evts) {
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    const cls = /reject|error/.test(e.kind) ? 'k-red'
+      : /delivered/.test(e.kind) ? 'k-green'
+      : /draw/.test(e.kind) ? 'k-gold' : 'k-violet';
+
+    const k = document.createElement('span');
+    k.className = 'log-kind ' + cls;
+    k.textContent = e.kind;
+
+    const p = document.createElement('span');
+    p.className = 'log-payload';
+    const pl = e.payload ?? {};
+    p.textContent = Object.entries(pl)
+      .filter(([kk]) => !['userId', 'eventId', 'drawId', 'token'].includes(kk))
+      .map(([kk, vv]) => `${kk}=${typeof vv === 'object' ? JSON.stringify(vv) : vv}`)
+      .join('  ');
+
+    row.append(k, p);
+    log.appendChild(row);
+  }
+}
+
+// 把最近一次真实投递的 payload 展示出来 —— 这是最能说明问题的一屏
+let lastReadingId = null;
+async function loadPayload() {
+  const res = await api('/api/events');
+  const delivered = (res.data.events ?? []).find((e) => e.kind === 'reading.delivered');
+  if (delivered) {
+    $('badge-deliver').textContent = delivered.payload.delivered ? '投递成功' : '投递未确认';
+    $('badge-deliver').className = 'badge ' + (delivered.payload.delivered ? 'green' : 'red');
+  }
+  const req = (res.data.events ?? []).find((e) => e.kind === 'gateway.request');
+  if (req?.payload?.payload && req.payload.readingId !== lastReadingId) {
+    lastReadingId = req.payload.readingId;
+    $('payload').textContent = JSON.stringify(req.payload.payload, null, 2);
+  }
+}
+
+function greet() {
+  $('chat').innerHTML = '';
+  bubble('你好，我是你的塔罗占卜师。\n有什么想问的可以直接说，也可以发「抽塔罗」。', 'bot');
+}
+
+greet();
+allowPeer();
+loadLog();
+loadPayload();
+setInterval(() => { loadLog(); loadPayload(); }, 4000);
+
+const health = await api('/health');
+if (health.data.ok) {
+  $('badge-gateway').textContent = `网关 ${health.data.gateway}`;
+  $('badge-reading').textContent = `解读 ${health.data.reading} · ${health.data.cards} 张牌`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+// ════════════════════════════════════════════════════════
+// OpenClaw Gateway 配置片段
+//
+// 仓库里已经用 `openclaw config set` 帮你写进 ~/.openclaw/openclaw.json 了，
+// 这份文件是给人看的设计参考。要手工重建时，逐条 set 即可：
+//
+//   openclaw config set hooks.enabled true
+//   openclaw config set hooks.token "$(openssl rand -hex 32)"
+//   openclaw config set hooks.path '"/hooks"'
+//   openclaw config set hooks.allowedAgentIds '["tarot"]'
+//   openclaw config set hooks.allowRequestSessionKey false
+//   openclaw agents add tarot --bind openclaw-weixin --workspace ~/.openclaw/workspace-tarot
+//
+// 关键点：hooks.token 必须与 Gateway 的 auth token 不同；
+//        allowedAgentIds 收窄到只有 tarot；
+//        allowRequestSessionKey 保持 false（防止外部注入任意会话）。
+// ════════════════════════════════════════════════════════
+{
+  hooks: {
+    enabled: true,
+    token: "<换成一段长随机值，例如 openssl rand -hex 32>",
+    path: "/hooks",
+    allowedAgentIds: ["tarot"],
+    // 保持 false：外部不允许自带 sessionKey 注进任意会话
+    allowRequestSessionKey: false,
+  },
+
+  // 微信通道：由腾讯微信团队维护的外部插件提供
+  channels: {
+    "openclaw-weixin": {
+      enabled: true,
+      // 多账号时按账号隔离私聊会话
+      // openclaw config set session.dmScope per-account-channel-peer
+    },
+  },
+
+  agents: {
+    tarot: {
+      // 这个 agent 负责意图识别、场景深挖、解读
+      skills: ["tarot-divination"],
+      // 建议给这个 agent 收紧工具权限：它不需要浏览器、不需要写文件
+      tools: {
+        allow: ["http"],   // 只需要调业务服务的 HTTP 接口
+      },
+    },
+  },
+
+  session: {
+    // 每个微信联系人独立会话，避免串号
+    dmScope: "per-account-channel-peer",
+  },
+}

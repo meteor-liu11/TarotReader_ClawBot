@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fdfaf8">
+<title>微信扫码登录</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .qr-page {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px; text-align: center;
+    padding: calc(32px + var(--sat)) 22px calc(32px + var(--sab));
+  }
+  .qr-box {
+    padding: 18px;
+    border-radius: var(--r-lg);
+    background: #fff;
+    box-shadow: 0 24px 60px -20px rgba(59,51,80,.35), 0 0 0 1px rgba(176,138,62,.22);
+  }
+  .qr-box img { display: block; width: min(288px, 66vw); height: auto; }
+  .qr-hint { max-width: 30em; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.8; margin: 0; }
+  .qr-hint b { color: var(--ink); }
+  .qr-note {
+    display: none; flex-direction: column; gap: 8px;
+    max-width: 32em; padding: 20px;
+    border-radius: var(--r); font-size: var(--fs-small); line-height: 1.8;
+  }
+  .qr-note.good { border: 1px solid rgba(79,154,114,.3); background: rgba(79,154,114,.07); color: #3d7a58; }
+  .qr-note.bad  { border: 1px solid rgba(201,102,90,.3); background: rgba(201,102,90,.07); color: #9d4b41; }
+  .qr-note .t { font-weight: var(--fw-bold); font-size: var(--fs-title); font-family: var(--font-display); }
+  .qr-page code {
+    display: inline-block; margin-top: 3px; padding: 5px 11px;
+    border-radius: 7px; background: rgba(59,51,80,.05); border: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--gold);
+  }
+  .qr-age { color: var(--gold); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="qr-page">
+  <h1 class="t-display">微信扫码登录</h1>
+  <div class="badge" id="pill">检查状态…</div>
+
+  <div class="qr-box"><img id="qr" src="wechat-login-qr.png" alt="微信登录二维码"></div>
+  <p class="qr-hint" id="hint">二维码约 1 分钟过期，页面会自动换成最新的那张。</p>
+
+  <div class="qr-note" id="note"></div>
+</div>
+
+<script>
+const img = document.getElementById('qr');
+const pill = document.getElementById('pill');
+const note = document.getElementById('note');
+const hint = document.getElementById('hint');
+let lastMtime = null, flips = 0;
+
+async function tick() {
+  try {
+    const head = await fetch('wechat-login-qr.png?probe=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    if (head.ok) {
+      const mt = head.headers.get('X-Qr-Mtime');
+      if (mt && mt !== lastMtime) {
+        lastMtime = mt;
+        img.src = 'wechat-login-qr.png?t=' + Date.now();
+        flips++;
+      }
+    }
+    const res = await fetch('api/qr-status', { cache: 'no-store' });
+    render(await res.json());
+  } catch (e) {
+    pill.className = 'badge red';
+    pill.textContent = '连不上服务';
+    note.className = 'qr-note bad';
+    note.style.display = 'flex';
+    note.innerHTML = '<span class="t">业务服务没在跑</span>'
+      + '<div>在 PowerShell 执行：<br><code>Set-Location &quot;E:\\塔罗clawbot\\demo&quot;; node .\\src\\server.mjs</code></div>';
+  }
+}
+
+function render(s) {
+  if (s.live) {
+    note.style.display = 'none';
+    img.style.filter = '';
+    pill.className = 'badge green';
+    pill.textContent = '正在刷新 · 已更换 ' + flips + ' 次';
+    hint.innerHTML = '二维码约 1 分钟过期，页面会自动换成最新的那张 —— 以这一刻的为准。';
+    return;
+  }
+
+  img.style.filter = 'grayscale(1) opacity(.3)';
+  note.style.display = 'flex';
+
+  if (s.loggedIn) {
+    const when = String(s.loggedInAt).slice(0, 19).replace('T', ' ');
+    note.className = 'qr-note good';
+    pill.className = 'badge green';
+    pill.textContent = '已登录成功';
+    hint.textContent = '';
+    note.innerHTML = '<span class="t">扫码已经完成，不用再扫了</span>'
+      + '<div>登录时间：' + when + '</div>'
+      + '<div style="opacity:.85">刷新脚本完成后会自动退出，所以这张码不再更新 —— 这是正常的。</div>'
+      + '<div>要重新扫码时，在 PowerShell 执行：<br><code>Set-Location &quot;E:\\塔罗clawbot\\demo&quot;; node .\\scripts\\wechat-login-qr.mjs</code></div>';
+  } else {
+    note.className = 'qr-note bad';
+    pill.className = 'badge red';
+    pill.textContent = '已停止刷新';
+    hint.textContent = '';
+    note.innerHTML = '<span class="t">这张二维码已经停止刷新了，扫不了</span>'
+      + (s.ageSec === null
+        ? '<div>还没有生成过二维码。</div>'
+        : '<div>最后一张是 <span class="qr-age">' + s.ageSec + ' 秒</span>前生成的，早就过期了。</div>')
+      + '<div>刷新脚本没在运行。在 PowerShell 执行：<br><code>Set-Location &quot;E:\\塔罗clawbot\\demo&quot;; node .\\scripts\\wechat-login-qr.mjs</code></div>';
+  }
+}
+
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

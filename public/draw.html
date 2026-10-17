@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f654d">
+<title>塔罗 · ClawBot 抽卡仪式</title>
+<link rel="stylesheet" href="/static/style.css?v=20261015-question-return-v4">
+</head>
+<body class="play-page">
+
+<div id="session-error" class="session-error">正在连接 ClawBot 抽卡会话…</div>
+
+<div class="play-page session-page" id="ritual-shell" hidden>
+  <header class="play-top">
+    <div class="now">
+      <div class="k" id="spread-kind">ClawBot · 正式抽卡</div>
+      <div class="v" id="spread-name">正在读取本次问题…</div>
+      <div class="d" id="spread-desc">静下心，来回洗牌</div>
+    </div>
+    <div class="session-info">
+      <div class="session-meta" id="meta"></div>
+      <span class="timer" id="timer">--:--</span>
+    </div>
+    <button class="ghost" id="btn-spread" type="button" hidden>切换牌阵</button>
+  </header>
+
+  <main class="play-stage" id="stage">
+    <div id="fan-viewport" role="region" tabindex="0" aria-label="牌库，可在框内左右滑动浏览；轻触预选，确认后放入牌位，也可撤回重选"></div>
+    <div id="fan-label-layer" aria-hidden="true"></div>
+    <div id="slots"></div>
+    <div id="table"></div>
+    <div id="transit-layer" aria-hidden="true"></div>
+    <div class="cut-guides" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="play-float top" id="float-top"></div>
+    <div class="play-float bottom" id="float-bottom"></div>
+  </main>
+
+  <div class="play-actions">
+    <div class="play-stat" id="stat"></div>
+    <button class="ghost" id="btn-cancel-pick" type="button" hidden>撤回重选</button>
+    <button class="gold" id="btn-main" type="button">开始洗牌</button>
+  </div>
+
+  <div id="notice" class="session-notice" hidden></div>
+
+  <section class="reveal hidden" id="result" aria-live="polite">
+    <div class="status-line" id="status-line"></div>
+    <button class="gold" id="btn-return-wechat" type="button" hidden>返回微信查看解读</button>
+    <button class="ghost" id="btn-retry-reading" type="button" hidden>重试发送解读</button>
+  </section>
+
+  <section class="panel mt hidden" id="wallet">
+    <div class="panel-head">
+      <span>我的点数</span>
+      <span class="badge gold" id="credits">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="row">
+        <input id="code" placeholder="输入兑换码" autocomplete="off" style="flex:1;min-width:150px">
+        <button id="btn-redeem" type="button">兑换</button>
+        <button class="ghost" id="btn-history" type="button">历史记录</button>
+      </div>
+      <div id="wallet-msg" class="t-small ink-2 mt"></div>
+      <div id="history" class="mt"></div>
+    </div>
+  </section>
+</div>
+
+<script type="module" src="/static/draw.js?v=20261015-question-return-v4"></script>
+</body>
+</html>
