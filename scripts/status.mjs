@@ -117,9 +117,11 @@ line(Boolean(defaultModel && /deepseek\//i.test(defaultModel)), 'tarot Agent 默
 line(deepseekReady, 'DeepSeek 认证状态已就绪', deepseekReady ? '认证状态可用；密钥值不会显示' : '认证缺失或当前 CLI 无法确认',
   '确认 D:\\law\\OpenClaw\\state\\.openclaw\\.env 有 DEEPSEEK_API_KEY，并重启 Gateway');
 
+let businessHealth = null;
 try {
   const response = await fetch('http://127.0.0.1:8787/health', { signal: AbortSignal.timeout(2500) });
   const data = await response.json();
+  businessHealth = data;
   const serviceOk = response.ok && data?.ok === true && data?.cards === 78
     && data?.agentClassify === 1 && data?.agentApplications === 2;
   line(serviceOk, 'ClawBot 业务服务健康', serviceOk
@@ -129,6 +131,30 @@ try {
   line(false, 'ClawBot 业务服务健康', '127.0.0.1:8787 无响应',
     'powershell -ExecutionPolicy Bypass -File E:\\塔罗clawbot\\demo\\scripts\\start-stack.ps1');
 }
+
+line(businessHealth?.publicPages === 1, '微信抽卡链接已启用 GitHub Pages 模式',
+  businessHealth?.publicPages === 1 ? 'H5 link + HTTPS API URL configured' : '当前服务未配置 Pages + 隧道抽卡链接',
+  '重新双击 E:\\塔罗clawbot\\demo\\start-clawbot.bat');
+
+let proxyReady = false;
+try {
+  const response = await fetch('http://127.0.0.1:8788/_local-health', { signal: AbortSignal.timeout(1500) });
+  proxyReady = response.ok;
+} catch { /* proxy 未启动 */ }
+line(proxyReady, '公网 API 的 loopback 过滤代理已监听',
+  proxyReady ? '127.0.0.1:8788' : '127.0.0.1:8788 无响应',
+  '重新双击 E:\\塔罗clawbot\\demo\\start-clawbot.bat');
+
+let tunnelRunning = false;
+try {
+  const processList = process.platform === 'win32'
+    ? execFileSync('tasklist', ['/FI', 'IMAGENAME eq cloudflared.exe', '/NH'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    : execFileSync('pgrep', ['-x', 'cloudflared'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  tunnelRunning = /cloudflared/i.test(processList);
+} catch { /* cloudflared 未运行 */ }
+line(tunnelRunning, 'Cloudflare Quick Tunnel 正在运行',
+  tunnelRunning ? 'cloudflared process detected' : '未检测到 cloudflared 进程',
+  '检查 cloudflared 是否已安装，并重新双击 start-clawbot.bat');
 
 try {
   const response = await fetch('http://127.0.0.1:8787/api/agent/classify', {

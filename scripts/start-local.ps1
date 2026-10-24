@@ -54,6 +54,9 @@ if ($Lan -or $PublicBaseUrl) {
   $env:PUBLIC_BASE_URL = 'http://127.0.0.1:8787'
 }
 $env:PORT = '8787'
+if ($env:PUBLIC_H5_BASE_URL -and -not $env:PUBLIC_API_BASE_URL) {
+  throw 'Pages mode requires the current HTTPS tunnel URL in PUBLIC_API_BASE_URL. Start with start-clawbot.bat.'
+}
 
 try {
   $gw = Invoke-RestMethod -Uri 'http://127.0.0.1:18789/health' -TimeoutSec 3
@@ -70,6 +73,9 @@ if ($existing) {
     if ($existing.agentClassify -ne 1 -or $existing.agentApplications -ne 2) {
       throw 'An older ClawBot instance is already running without the current classify/direct-access routes. Stop its PowerShell window with Ctrl+C, then rerun this launcher.'
     }
+    if ($env:PUBLIC_H5_BASE_URL -and $existing.publicPages -ne 1) {
+      throw 'An older ClawBot instance is already running without GitHub Pages link support. Stop its PowerShell window with Ctrl+C, then rerun start-clawbot.bat.'
+    }
     if ($existing.gateway -ne 'live') {
       throw 'A non-live ClawBot instance is already running. Stop its old PowerShell window with Ctrl+C, then rerun this launcher.'
     }
@@ -81,6 +87,10 @@ if ($existing) {
 }
 
 Write-Host "Starting ClawBot: $($env:PUBLIC_BASE_URL)" -ForegroundColor Cyan
+if ($env:PUBLIC_H5_BASE_URL -and $env:PUBLIC_API_BASE_URL) {
+  Write-Host "Public draw page: $($env:PUBLIC_H5_BASE_URL)" -ForegroundColor Green
+  Write-Host "Local API is exposed only through the filtered tunnel proxy: $($env:PUBLIC_API_BASE_URL)" -ForegroundColor Yellow
+}
 if ($Lan) {
   Write-Host 'LAN binding is enabled. Use only on a trusted network; check the Windows private-network firewall rule if phones cannot connect.' -ForegroundColor Yellow
 }

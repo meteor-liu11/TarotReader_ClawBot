@@ -32,6 +32,8 @@ const PORT = Number(process.env.PORT ?? 8787);
 // 默认只监听回环地址。要让手机访问（真机验证翻牌动画）时设 HOST=0.0.0.0
 const HOST = process.env.HOST ?? '127.0.0.1';
 const BASE_URL = process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const PUBLIC_H5_BASE_URL = String(process.env.PUBLIC_H5_BASE_URL ?? '').trim();
+const PUBLIC_API_BASE_URL = String(process.env.PUBLIC_API_BASE_URL ?? '').trim();
 const TTL_MIN = Number(process.env.SESSION_TTL_MINUTES ?? 10);
 const RATE_MIN = Number(process.env.RATE_PER_MINUTE ?? 5);
 const RATE_DAY = Number(process.env.RATE_PER_DAY ?? 30);
@@ -61,6 +63,29 @@ function send(res, status, body, headers = {}) {
 }
 
 const json = (res, status, obj, headers) => send(res, status, obj, headers);
+
+function drawLinkFor(token) {
+  if (!PUBLIC_H5_BASE_URL) return `${BASE_URL}/s/${encodeURIComponent(token)}`;
+  if (!PUBLIC_API_BASE_URL) throw new Error('Pages link mode requires PUBLIC_API_BASE_URL.');
+
+  const page = new URL(PUBLIC_H5_BASE_URL);
+  const api = new URL(PUBLIC_API_BASE_URL);
+  const localApi = ['localhost', '127.0.0.1', '[::1]'].includes(api.hostname);
+  const githubPages = page.hostname.endsWith('.github.io');
+  const quickTunnel = api.protocol === 'https:'
+    && api.hostname.endsWith('.trycloudflare.com') && !api.port;
+  if (page.protocol !== 'https:' || page.username || page.password || page.search || page.hash) {
+    throw new Error('PUBLIC_H5_BASE_URL must be a clean HTTPS page URL.');
+  }
+  if ((githubPages && !quickTunnel)
+      || (!githubPages && !localApi && api.protocol !== 'https:')
+      || api.username || api.password || api.search || api.hash) {
+    throw new Error('PUBLIC_API_BASE_URL must be HTTPS (or loopback for local testing).');
+  }
+  page.searchParams.set('token', token);
+  page.searchParams.set('api', api.origin);
+  return page.toString();
+}
 
 function isLoopbackRequest(req) {
   const remote = String(req.socket.remoteAddress ?? '').toLowerCase();
@@ -226,6 +251,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         ok: true, db: DB_PATH,
         cards: CARDS.length, spreads: SPREADS.length, agentClassify: 1, agentApplications: 2,
+        publicPages: Number(Boolean(PUBLIC_H5_BASE_URL && PUBLIC_API_BASE_URL)),
         gateway: gatewayConfig().mode,
         reading: process.env.READING_MODE ?? 'template',
       });
@@ -295,7 +321,7 @@ const server = http.createServer(async (req, res) => {
         question, needCard, spreadId, ttlMinutes: TTL_MIN,
       });
 
-      const link = `${BASE_URL}/s/${session.token}`;
+      const link = drawLinkFor(session.token);
       const dims = needCard.dimensions.join(' / ');
       const reply = [
         `我梳理了一下：你问的是「${needCard.domain}」这块的事。`,
@@ -486,7 +512,12 @@ const server = http.createServer(async (req, res) => {
       const s = getSession(token);
       if (!s) return json(res, 404, { error: '会话不存在' });
       if (s.status === 'consumed') return json(res, 409, { error: '已经处理过了' });
+      if (s.status === 'processing') return json(res, 409, { error: '解读正在生成，请稍后查看微信' });
       if (s.status !== 'drawn') return json(res, 409, { error: '还没有抽牌' });
+      if (s.expires_at < now()) {
+        db.prepare("UPDATE draw_sessions SET status='expired' WHERE token=? AND status='drawn'").run(token);
+        return json(res, 410, { error: '链接已过期' });
+      }
 
       const drawRow = db.prepare('SELECT * FROM draws WHERE session_token = ? ORDER BY created_at DESC LIMIT 1').get(token);
       if (!drawRow) return json(res, 404, { error: '找不到抽牌记录' });
@@ -498,10 +529,22 @@ const server = http.createServer(async (req, res) => {
       const draw = JSON.parse(drawRow.cards);
       const needCard = JSON.parse(s.need_card);
 
+      // 抢占回调。公开 tunnel 上相同 token 可能被并发提交；必须在任何 await 前原子锁住，防止重复 LLM 费用/微信投递。
+      const claimed = db.prepare(
+        "UPDATE draw_sessions SET status='processing', consumed_at=? WHERE token=? AND status='drawn'",
+      ).run(now(), token);
+      if (claimed.changes !== 1) return json(res, 409, { error: '解读已开始处理，请稍后查看微信' });
+
       // 在服务端生成供微信投递的解读；H5 只收到 readingId 和投递状态
-      const gen = await generateReading({
-        spreadId: s.spread_id, draw, question: s.question, needCard,
-      });
+      let gen;
+      try {
+        gen = await generateReading({
+          spreadId: s.spread_id, draw, question: s.question, needCard,
+        });
+      } catch (error) {
+        db.prepare("UPDATE draw_sessions SET status='drawn', consumed_at=NULL WHERE token=? AND status='processing'").run(token);
+        throw error;
+      }
       const readingId = saveReading({
         drawId: drawRow.id, mode: gen.mode, model: gen.model,
         content: gen.content, delivered: false, deliveryNote: 'pending',
@@ -531,7 +574,15 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 个人中心
+    // 抽卡 H5 的余额小接口；不返回历史记录，避免分享链接暴露用户过往牌面。
+    const creditsMatch = p.match(/^\/api\/credits\/(.+)$/);
+    if (creditsMatch && req.method === 'GET') {
+      const s = getSession(decodeURIComponent(creditsMatch[1]));
+      if (!s) return json(res, 404, { error: '会话不存在' });
+      return json(res, 200, { credits: getUser(s.user_id).credits });
+    }
+
+    // 本机个人中心（完整历史只供本机页面使用）
     const meMatch = p.match(/^\/api\/me\/(.+)$/);
     if (meMatch && req.method === 'GET') {
       const s = getSession(decodeURIComponent(meMatch[1]));
@@ -555,6 +606,8 @@ const server = http.createServer(async (req, res) => {
       const { token, code } = await readBody(req);
       const s = getSession(token);
       if (!s) return json(res, 404, { error: '会话不存在' });
+      const limit = rateLimit(s.user_id, { perMinute: 5, perDay: 30 });
+      if (!limit.ok) return json(res, 429, { error: limit.reason });
       const r = redeemCode(String(code ?? '').trim().toUpperCase(), s.user_id);
       return json(res, r.ok ? 200 : 400, r);
     }

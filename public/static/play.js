@@ -20,7 +20,8 @@ function setQuestionHeading() {
   if (question) el.title = question;
   else el.removeAttribute('title');
 }
-const cardCatalogPromise = fetch('/api/cards')
+const cardApiUrl = new URL('/api/cards', window.__CLAWBOT_API_BASE__ ?? location.origin);
+const cardCatalogPromise = fetch(cardApiUrl)
   .then((res) => res.ok ? res.json() : Promise.reject(new Error('牌面资料不可用')))
   .then((data) => Array.isArray(data.cards) ? data.cards : [])
   .catch(() => []);
@@ -702,7 +703,7 @@ async function revealPickedCards() {
     name.textContent = card.name ?? '';
     img.alt = card.name ?? `第 ${k + 1} 张塔罗牌`;
     if (card.img) {
-      img.src = `/deck/${encodeURIComponent(card.img)}`;
+      img.src = new URL(`../deck/${encodeURIComponent(card.img)}`, import.meta.url).href;
       img.onerror = () => seat.classList.add('image-missing');
       imageLoads.push(img.decode().catch(() => seat.classList.add('image-missing')));
     } else {

@@ -11,6 +11,7 @@
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
     "verify": "node scripts/verify.mjs",
+    "pages:build": "node scripts/build-pages.mjs",
     "play-smoke": "node scripts/play-smoke.mjs",
     "ui-smoke": "node scripts/ui-smoke.mjs",
     "seed-codes": "node scripts/seed-codes.mjs",

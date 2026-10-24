@@ -38,15 +38,17 @@ if (!token) {
 }
 
 const port = process.env.PORT ?? '8787';
-// 手机要能打开抽卡链接，就必须用局域网 IP 或公网域名，而不是 127.0.0.1
 const publicBase = process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`;
-// 绑定到 0.0.0.0 才能被同网段设备访问
 const host = process.env.HOST ?? '127.0.0.1';
 const env = `# 由 scripts/make-env.mjs 生成 — live 模式
 # 不要提交到 git（已在 .gitignore 里）
 
 PORT=${port}
 PUBLIC_BASE_URL=${publicBase}
+# 动态 Pages / Quick Tunnel 地址只由 start-stack 进程注入，不写入文件，以免重启后复用过期 URL。
+PUBLIC_H5_BASE_URL=
+PUBLIC_API_BASE_URL=
+PAGES_ORIGIN=
 DB_PATH=./data/demo.db
 HOST=${host}
 

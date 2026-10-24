@@ -9,10 +9,11 @@
  */
 
 import { spawn } from 'node:child_process';
-import { rmSync, existsSync, mkdirSync } from 'node:fs';
+import { rmSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import { buildPages } from './build-pages.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -20,8 +21,13 @@ const VERIFY_WORK = resolve(ROOT, '.work');
 mkdirSync(VERIFY_WORK, { recursive: true });
 
 const PORT = 8000 + Math.floor(Math.random() * 900);
+const PROXY_PORT = 10_000 + Math.floor(Math.random() * 900);
 const BASE = `http://127.0.0.1:${PORT}`;
+const PROXY_BASE = `http://127.0.0.1:${PROXY_PORT}`;
+const PAGES_BASE = 'https://meteor-liu11.github.io/TarotReader_ClawBot/';
+const PAGES_ORIGIN = 'https://meteor-liu11.github.io';
 const DB = resolve(VERIFY_WORK, `tarot-verify-${randomBytes(4).toString('hex')}.db`);
+const PAGES_TEST_DIR = resolve(VERIFY_WORK, `pages-verify-${randomBytes(4).toString('hex')}`);
 
 const R = { pass: 0, fail: 0, warn: 0, manual: 0 };
 
@@ -81,6 +87,8 @@ function startServer() {
       PORT: String(PORT),
       DB_PATH: DB,
       PUBLIC_BASE_URL: BASE,
+      PUBLIC_H5_BASE_URL: PAGES_BASE,
+      PUBLIC_API_BASE_URL: 'https://test-api.trycloudflare.com',
       SESSION_TTL_MINUTES: '10',
       GATEWAY_MODE: 'mock',
       READING_MODE: 'template',
@@ -97,6 +105,23 @@ function startServer() {
   return child;
 }
 
+function startPublicProxy() {
+  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/public-proxy.mjs')], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PUBLIC_PROXY_HOST: '127.0.0.1',
+      PUBLIC_PROXY_PORT: String(PROXY_PORT),
+      PUBLIC_PROXY_UPSTREAM_HOST: '127.0.0.1',
+      PUBLIC_PROXY_UPSTREAM_PORT: String(PORT),
+      PAGES_ORIGIN,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stderr.on('data', (d) => process.stderr.write(C.dim(`  [proxy] ${String(d)}`)));
+  return child;
+}
+
 async function waitReady(timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -107,6 +132,29 @@ async function waitReady(timeoutMs = 15000) {
     await new Promise((r) => setTimeout(r, 200));
   }
   return false;
+}
+
+async function waitProxyReady(timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${PROXY_BASE}/_local-health`);
+      if (response.ok) return true;
+    } catch { /* not listening yet */ }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+async function proxyRequest(path, opts = {}) {
+  const response = await fetch(PROXY_BASE + path, {
+    ...opts,
+    headers: { Origin: PAGES_ORIGIN, ...(opts.headers ?? {}) },
+  });
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  return { status: response.status, ok: response.ok, data, headers: response.headers };
 }
 
 function renderManualCurl(payload, readingId) {
@@ -125,6 +173,7 @@ async function main() {
   console.log(C.dim(`  服务 ${BASE}   数据库 ${DB}\n`));
 
   const server = startServer();
+  let proxy = null;
   if (!(await waitReady())) {
     console.log(C.fail('  服务启动失败。先单独跑一次 npm start 看报错。'));
     server.kill();
@@ -132,11 +181,29 @@ async function main() {
   }
 
   try {
+    buildPages(PAGES_TEST_DIR);
+    const pagesHtml = readFileSync(resolve(PAGES_TEST_DIR, 'index.html'), 'utf8');
+    check('Pages 构建只包含正式抽牌 H5 且静态路径兼容项目子目录',
+      pagesHtml.includes('static/draw.js') && !pagesHtml.includes('src="/static/')
+        && existsSync(resolve(PAGES_TEST_DIR, 'static/play.js'))
+        && existsSync(resolve(PAGES_TEST_DIR, 'deck'))
+        && !existsSync(resolve(PAGES_TEST_DIR, 'admin')));
+    const pagesDraw = readFileSync(resolve(ROOT, 'public/static/draw.js'), 'utf8');
+    const envBuilder = readFileSync(resolve(ROOT, 'scripts/make-env.mjs'), 'utf8');
+    check('Pages H5 只接受 HTTPS Cloudflare Quick Tunnel API 地址',
+      pagesDraw.includes("url.hostname.endsWith('.trycloudflare.com')"));
+    check('动态 Tunnel 地址不写入生成的 .env',
+      envBuilder.includes('PUBLIC_API_BASE_URL=\n') && envBuilder.includes('PUBLIC_H5_BASE_URL=\n'));
+
+    proxy = startPublicProxy();
+    if (!(await waitProxyReady())) throw new Error('Filtered public API proxy did not start in verification.');
+
     // ══ V1 ═══════════════════════════════════════════════
     section('V1 - 服务与通道可用性');
     const health = await api('/health');
     check('服务健康检查、分类与 direct-access 路由版本通过', health.ok && health.data.agentClassify === 1 && health.data.agentApplications === 2,
       `cards=${health.data.cards} spreads=${health.data.spreads} classify=${health.data.agentClassify} applications=${health.data.agentApplications}`);
+    check('服务器已启用 Pages H5 + HTTPS API 地址模式', health.data.publicPages === 1);
     check('牌库为完整 78 张', health.data.cards === 78, `实际 ${health.data.cards} 张`);
 
     const classifyExplicit = await api('/api/agent/classify', {
@@ -176,9 +243,48 @@ async function main() {
     const directAccess = await api('/api/agent/inbound', {
       method: 'POST', body: JSON.stringify({ text: '我要测算一下今日运势', peerId: stranger }),
     });
+    const directLink = new URL(directAccess.data.link);
     check('未申请用户首次发起今日运势即可直接取得服务端抽卡链接',
       directAccess.data.allowed === true && directAccess.data.intent === 'divination'
-        && typeof directAccess.data.link === 'string' && directAccess.data.link.includes('/s/'));
+        && directLink.origin === PAGES_ORIGIN
+        && directLink.pathname === '/TarotReader_ClawBot/'
+        && directLink.searchParams.get('token') === directAccess.data.sessionToken
+        && directLink.searchParams.get('api') === 'https://test-api.trycloudflare.com');
+
+    const publicSession = await proxyRequest(`/api/session/${directAccess.data.sessionToken}`);
+    check('Pages 跨域可通过代理读取本次抽卡会话',
+      publicSession.ok && publicSession.data.question === '我要测算一下今日运势'
+        && publicSession.headers.get('access-control-allow-origin') === PAGES_ORIGIN);
+    const publicCredits = await proxyRequest(`/api/credits/${directAccess.data.sessionToken}`);
+    check('公网 token 只读余额，不暴露用户历史',
+      publicCredits.ok && Number.isFinite(publicCredits.data.credits)
+        && !Object.hasOwn(publicCredits.data, 'history')
+        && (await proxyRequest(`/api/me/${directAccess.data.sessionToken}`)).status === 404);
+    const redeemAttempts = [];
+    for (let i = 0; i < 6; i++) {
+      redeemAttempts.push(await proxyRequest('/api/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: directAccess.data.sessionToken, code: `INVALID-${i}` }),
+      }));
+    }
+    check('公开兑换码失败尝试按会话用户限流（每分钟 5 次）',
+      redeemAttempts.slice(0, 5).every((attempt) => attempt.status === 400)
+        && redeemAttempts[5].status === 429);
+    const publicPreflight = await proxyRequest(`/api/draw/${directAccess.data.sessionToken}`, {
+      method: 'OPTIONS',
+      headers: { 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' },
+    });
+    check('Pages 抽牌 POST 的 CORS 预检允许 content-type',
+      publicPreflight.status === 204
+        && publicPreflight.headers.get('access-control-allow-origin') === PAGES_ORIGIN);
+    const hiddenRoute = await proxyRequest('/api/agent/applications');
+    check('公开代理拒绝内部管理接口和健康接口',
+      hiddenRoute.status === 404 && (await proxyRequest('/health')).status === 404);
+    const hostileOrigin = await fetch(`${PROXY_BASE}/api/session/${directAccess.data.sessionToken}`, {
+      headers: { Origin: 'https://attacker.example' },
+    });
+    check('公开代理拒绝非 Pages 来源', hostileOrigin.status === 403);
 
     const applicant = `wx_apply_${randomBytes(3).toString('hex')}`;
     const application = await api('/api/agent/apply', {
@@ -291,11 +397,19 @@ async function main() {
     const drawAgain = await api(`/api/draw/${token}`, { method: 'POST' });
     check('同一会话不能重复抽牌', drawAgain.status === 409, `HTTP ${drawAgain.status}`);
 
-    const cb = await api(`/api/callback/${token}`, { method: 'POST' });
+    const cbResponses = await Promise.all([
+      api(`/api/callback/${token}`, { method: 'POST' }),
+      api(`/api/callback/${token}`, { method: 'POST' }),
+    ]);
+    const cb = cbResponses.find((response) => response.ok) ?? cbResponses[0];
+    const cbRace = cbResponses.find((response) => !response.ok) ?? cbResponses[1];
     check('抽牌完成后 H5 只收到投递状态，不收到解读正文',
       cb.ok && typeof cb.data.readingId === 'string' && !Object.hasOwn(cb.data, 'content')
         && cb.data.deliveryPending === true,
       `mode=${cb.data.mode} 待投递=${cb.data.deliveryPending}`);
+    check('并发重复回调只允许生成一次解读和投递',
+      cbRace.status === 409 && typeof cb.data.readingId === 'string',
+      `first=${cb.status} second=${cbRace.status}`);
 
     const delivered = await waitDelivered(cb.data.readingId);
     check('后台投递到微信会话成功',
@@ -370,7 +484,7 @@ async function main() {
 
     // ══ V2 / V4 ══════════════════════════════════════════
     section('V2 - 微信外链可点性（需真机）');
-    manual('自建域名链接在微信里是否自动可点、是否被拦', '需要真域名 + 两个微信号互测');
+    manual('GitHub Pages 链接在微信里是否可点、是否被拦', '部署成功后用两个微信号互测；抽牌 API 需同时保持本机 Quick Tunnel 在线');
     manual('微信内置浏览器渲染 H5 是否正常', '手机微信里打开链接，检查翻牌动画与布局');
 
     section('V4 - 微信消息长度限制（需真机）');
@@ -380,19 +494,21 @@ async function main() {
     manual('确认是否需要拆条发送', `若临界值 < ${msgLen}，五段式解读需拆成 3-4 条`);
 
   } finally {
+    if (proxy && !proxy.killed) proxy.kill('SIGTERM');
     server.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 300));
     for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) {
       if (existsSync(f)) { try { rmSync(f); } catch { /* ignore */ } }
     }
+    if (existsSync(PAGES_TEST_DIR)) { try { rmSync(PAGES_TEST_DIR, { recursive: true, force: true }); } catch { /* ignore */ } }
   }
 
   console.log('\n' + '-'.repeat(62));
   console.log(C.bold(`  自动通过 ${R.pass}   自动失败 ${R.fail}   待真机 ${R.manual}`));
   if (R.fail === 0) {
     console.log(C.pass('\n  自动化部分全部通过'));
-    console.log('  剩下 V2 / V3 真实投递 / V4 需要能扫码的设备和真域名。');
-    console.log('  V3 真实投递通过前，不要开始写业务代码。\n');
+    console.log('  剩下 V2 / V3 真实投递 / V4 需要真机与在线本机服务验证。');
+    console.log('  自动测试不连接真实微信、Gateway 或 Cloudflare tunnel。\n');
   } else {
     console.log(C.fail('\n  有失败项，先修完再继续。\n'));
   }

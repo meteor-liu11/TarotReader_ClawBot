@@ -81,7 +81,7 @@ demo/
 | 20 组并发无串号 | ✅ | 每用户历史记录数恰为 1 |
 | 白名单拦截 + 限流 | ✅ | 未放行用户被拒；连续请求触发限流 |
 | 模糊情绪问题 → 主动询问占卜 | ✅ | 「还有可能吗」→ `maybe_divination`，不是直接抽牌 |
-| 五段式解读 + 免责声明 | ✅ | 结构校验通过，无绝对化承诺 |
+| 五段式自然段解读 | ✅ | 不输出标题/分段小标题或固定免责声明；无绝对化承诺 |
 | 回注 payload 结构正确 | ✅ | 含 `channel` + `to` + `deliver` + 幂等键 |
 | 阻碍位的牌不被误读成"资源" | ✅ | 位置语义（资源位/阻碍位/中性位）参与解读 |
 
@@ -89,7 +89,7 @@ demo/
 
 这三件事**必须真机**，也是上线前真正的风险点：
 
-1. **微信外链能不能正常点开**（V2）— 需要备案域名 + 两个微信号互测
+1. **微信内能不能正常打开 Pages 外链**（V2）— 需要真机扫码/点击并检查微信 WebView 行为
 2. **后端主动投递能不能真的送达微信**（V3.5）— 本 demo 的 mock 只打印 payload
 3. **微信单条消息的截断阈值**（V4）— 当前解读约 1100 字，可能超限要拆条
 
@@ -112,26 +112,47 @@ demo/
 
 ### 本机 Windows 启动步骤
 
-关机后 Gateway 和业务服务都会停止。开机后可以双击 `start-clawbot.bat`；它先确保 HTTP Hooks 允许 `tarot`、入站 guard 已安装/启用，再在 D 盘单独窗口启动或复用 Gateway。只有确认 `before_dispatch` 已注册后，才会在当前窗口启动 E 盘业务服务，并重新选择当前局域网地址：
+关机后 Gateway 和业务服务都会停止。开机后可以双击 `start-clawbot.bat`；它先确保 HTTP Hooks 允许 `tarot`、入站 guard 已安装/启用，再在 D 盘单独窗口启动或复用 Gateway。只有确认两个 guard hooks 已注册后，才会在当前窗口启动 E 盘业务服务；公网模式下应用和筛选代理都只监听 `127.0.0.1`，手机流量通过独立 Quick Tunnel 转入：
 
 ```powershell
 Set-Location 'E:\塔罗clawbot\demo'
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-stack.ps1
 ```
 
-两个 PowerShell 窗口都要保持打开。停止时分别在两个窗口按 `Ctrl+C`。开机后先用 `& 'D:\node.exe' 'E:\塔罗clawbot\demo\scripts\status.mjs'` 检查微信通道；只有 `channels status --probe` 显示未登录/未运行时才需要重新扫码，不必每次启动都生成二维码。如只在电脑本机预览，可加 `-NoLan`；手机要打开微信里的链接时不要加。也可以传入固定地址：`-PublicBaseUrl 'http://电脑局域网IPv4:8787'`。
+正常使用时双击 `start-clawbot.bat` 即可。Gateway 窗口和 ClawBot 启动窗口需要保持运行；默认使用 GitHub Pages 作为 H5 入口，并启动临时 Cloudflare Quick Tunnel 将必要 API 转发到本机过滤代理，不再把 8787 或 OpenClaw Gateway 端口暴露到局域网/公网。开机后先用 `& 'D:\node.exe' 'E:\塔罗clawbot\demo\scripts\status.mjs'` 检查微信通道；只有通道探针显示未登录/未运行时才重新扫码。只在电脑本机预览时可运行 `start-stack.ps1 -LocalOnly`（旧参数 `-NoLan` 仍作为兼容别名）；这只会关闭公网隧道，仍要求 Gateway/Guard 前置检查通过，不是离线 mock 模式。旧式 `start-local.ps1 -Lan` 会监听 `0.0.0.0`，任何防火墙/路由可达的网卡都可能访问，仅可在可信网络中临时使用，不要把它当作公网模式。
 
 若启动器提示 8787 已有旧版 ClawBot，先在旧服务窗口按 `Ctrl+C`，再重新双击启动器；它会验证新版本的分类路由后才报告服务就绪。
 
-旧的单服务启动方式仍可用，但它**不会启动 Gateway**：
+旧的单服务启动方式仍可用，但它**不会启动 Gateway 或公网隧道**：
 
 ```powershell
 Set-Location 'E:\塔罗clawbot\demo'
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -Lan
 ```
 
-一键启动器会幂等检查 HTTP Hooks 与 `tarot-inbound-guard`：只在配置缺失时开启 `hooks.enabled`、把 `tarot` 加入 `hooks.allowedAgentIds`（保留已有项目），并只在插件缺失或停用时安装/启用。首次安装可能要求审核插件能力；启动器不会自动批准。若 18789 未响应，它会调用 D 盘实际安装入口启动 Gateway，并等待 `127.0.0.1:18789/health` 返回 `live`；随后验证 guard 的 `before_dispatch` 注册，失败时停止而不启动业务服务。`start-local.ps1` 负责在 E 盘生成 live `.env` 并选取局域网地址。模型 Key 仍只保存在
+一键启动器会幂等检查 HTTP Hooks 与 `tarot-inbound-guard`：只在配置缺失时开启 `hooks.enabled`、把 `tarot` 加入 `hooks.allowedAgentIds`（保留已有项目），并只在插件缺失或停用时安装/启用。首次安装可能要求审核插件能力；启动器不会自动批准。若 18789 未响应，它会调用 D 盘实际安装入口启动 Gateway，并等待 `127.0.0.1:18789/health` 返回 `live`；随后验证 guard 的 `before_dispatch` 注册，失败时停止而不启动业务服务。默认 Pages 模式下，ClawBot 仍只监听 `127.0.0.1:8787`，额外代理仅监听 `127.0.0.1:8788`；Cloudflare 隧道只指向 8788 的 API allowlist。模型 Key 仍只保存在
 `D:\law\OpenClaw\state\.openclaw\.env` 的 `DEEPSEEK_API_KEY` 项中，绝不要提交到 Git 或发到聊天。
+
+### GitHub Pages H5 + 本机后端（手机/外网访问）
+
+本方案不需要把业务后端搬到云主机：GitHub Pages 只托管公开的抽牌 H5 与牌图；微信机器人、OpenClaw Gateway、数据库、抽牌和 AI 解读仍在这台电脑运行。电脑关机或休眠时，Pages 页面仍可打开，但抽牌 API 和微信回传会暂时不可用。
+
+一次性设置：
+
+1. 在 `meteor-liu11/TarotReader_ClawBot` 仓库的 **Settings → Pages**，将 Build and deployment 的 Source 设为 **GitHub Actions**。
+2. 将本次代码推送到 `main` 后，等待 **Actions → Deploy tarot H5 to GitHub Pages** 成功；项目页地址应为 `https://meteor-liu11.github.io/TarotReader_ClawBot/`。Pages 工作流只发布 `draw.html`、静态资源和牌图，不包含服务端、管理控制台、数据库或 `.env`。
+3. 在 Windows 安装一次 Cloudflare `cloudflared`，按[官方 Windows 安装说明](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)安装并确认命令 `cloudflared --version` 可用。这里使用 Quick Tunnel，不需要购买域名或登录 Cloudflare。
+
+每次开机使用：
+
+1. 若 Gateway 未运行，启动器会在单独窗口拉起 D 盘 OpenClaw；首次插件能力授权仍需人工确认。
+2. 双击 `E:\塔罗clawbot\demo\start-clawbot.bat`。脚本会先启动只监听 loopback 的筛选代理和 Cloudflare Quick Tunnel，再把本次随机生成的 `https://…trycloudflare.com` API 地址注入 ClawBot，最后启动 8787 业务服务。
+3. 保持 Gateway 窗口和 `start-clawbot.bat` 窗口打开、电脑不休眠。微信继续发送“我要测算一下今日运势”，机器人回传的链接会指向固定 Pages 页面，并携带当次会话 token 与当前 tunnel API 地址。
+4. 每次重新开机/重启会生成新的 Quick Tunnel 地址；旧链接中的 API 地址会失效。请回微信重新发起一次占卜获取新链接。关闭服务时在启动窗口按 `Ctrl+C`；脚本会结束本次启动的代理和 tunnel 进程，Gateway 可单独保持运行。
+
+公网代理只转发抽卡必需的 API：会话读取、余额读取、牌库/牌阵读取、洗牌、抽牌、回调和兑换；它不转发 `/health`、`/api/agent/*`、`/api/me/*`、`/api/events`、静态管理控制台或 Gateway 18789。`/api/credits/:token` 只返回余额，不暴露用户历史；兑换失败尝试按会话用户限流。代理的路由 allowlist 限制可转发接口，CORS 只约束浏览器跨域读取、不是身份认证；抽卡和兑换授权依赖随机会话 token，任何拿到有效链接的人都能在会话有效期内操作该会话。Quick Tunnel 是临时测试入口，并非具备 SLA 的正式公网服务；Cloudflare 官方说明 hostname 会变化、无 uptime guarantee、最多 200 个同时 in-flight 请求且不支持 SSE，详见[Quick Tunnel 文档](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)。
+
+若提示找不到 `cloudflared`，先安装后重试；若提示 8787/8788 被占用，关闭上一次的 ClawBot/tunnel 窗口后再启动。代理和隧道诊断日志位于项目 `demo\\.work`，不包含 API Key；OpenClaw Gateway 与模型密钥目录仍在 D 盘。
 
 运行状态检查：
 
@@ -163,24 +184,22 @@ $env:OPENCLAW_HOME = 'D:\law\OpenClaw\state'
 & 'D:\node.exe' 'D:\law\OpenClaw\node_modules\openclaw\openclaw.mjs' plugins inspect tarot-inbound-guard --runtime --json
 ```
 
-在微信私聊直接发送 **“我要抽一个今日运势”**，无需先回复“申请”。任何微信用户的明确占卜请求都会在服务端首次入站时自动授权，并预期收到服务端生成、10 分钟有效的 `/s/<token>` 链接；服务停机、身份缺失或限流时，不会回牌名。打开链接后，左上角会显示本次会话保存的用户问题；抽牌翻面仪式仍保留，但网页不显示解读正文，只提示返回微信查看。服务端生成的解读仅投递回发起抽牌的微信对话，页面只轮询投递状态。五段逻辑按自然段输出，不带小标题或固定免责声明。`/api/agent/inbound`、白名单管理接口和包含调试事件的 `/api/events` 均仅允许本机访问；调试事件不通过局域网抽卡链接暴露。随后在 `http://127.0.0.1:8787/` 本机控制台检查 `inbound.message` 事件：没有该事件通常表示 hook 没加载或没有接管；有事件但回复没有链接时检查限流和服务端返回结果。
+在微信私聊直接发送 **“我要抽一个今日运势”**，无需先回复“申请”。任何微信用户的明确占卜请求都会在服务端首次入站时自动授权，并预期收到绑定 token、10 分钟有效的 GitHub Pages 链接；服务停机、身份缺失或限流时，不会回牌名。打开链接后，左上角会显示本次会话保存的用户问题；抽牌翻面仪式仍保留，但网页不显示解读正文，只提示返回微信查看。服务端生成的解读仅投递回发起抽牌的微信对话，页面只轮询投递状态。五段逻辑按自然段输出，不带小标题或固定免责声明。`/api/agent/inbound`、白名单管理接口和包含调试事件的 `/api/events` 均仅允许本机访问；筛选代理不暴露它们。随后在 `http://127.0.0.1:8787/` 本机控制台检查 `inbound.message` 事件：没有该事件通常表示 hook 没加载或没有接管；有事件但回复没有链接时检查限流和服务端返回结果。
 
 “申请”现在不是使用前置条件：用户直接提出占卜即可由服务端自动开通并创建抽卡链接。单独回复 **“申请”** 也会立即确认开通，但没有必要。本机操作员可通过 `GET http://127.0.0.1:8787/api/agent/applications` 查看显式申请记录；该查询只允许 loopback。服务端 direct-access API 版本号已升级，启动器会拒绝复用旧的白名单门槛进程；先停止 ClawBot 服务窗口，再双击启动器加载 E 盘新代码。那条关于日志权限或定时推送的模型回复不代表这些操作已执行；本轮没有修改日志权限或创建推送。
 
 官方依据：[OpenClaw exec 环境说明](https://docs.openclaw.ai/tools/exec)、[消息 hook 的 before_dispatch 接管方式](https://docs.openclaw.ai/plugins/hooks/messages)、[hook 上下文中的 senderId](https://docs.openclaw.ai/plugins/hooks/reference)、[本地插件安装与 runtime 检查](https://docs.openclaw.ai/plugins/manage-plugins)。
 
-### 手机要能打开抽卡链接
+### 旧的同一局域网直接访问方式
 
-`127.0.0.1` 在手机上指的是手机自己。`start-local.ps1 -Lan` 会按当前默认路由自动挑选局域网地址；
-也可以手动固定地址：
+Pages + 隧道模式不要求手机和电脑在同一个 Wi-Fi，也无需开放 Windows 入站端口。只有排障时才考虑让手机与电脑在同一个局域网直接访问；该模式不会穿透互联网：
 
 ```powershell
 Set-Location 'E:\塔罗clawbot\demo'
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -Lan -PublicBaseUrl 'http://电脑局域网IPv4:8787'
 ```
 
-若手机仍无法打开链接，检查手机与电脑是否处于同一网络，以及 Windows 防火墙的专用网络访问规则；
-不要为此关闭整个防火墙，也不要把本地服务直接暴露到公网。
+若手机仍无法打开旧式局域网链接，检查手机与电脑是否处于同一网络及 Windows 私人网络防火墙规则；不要关闭整个防火墙，也不要直接把本地 8787 或 Gateway 18789 暴露到公网。
 
 ### 出问题时
 

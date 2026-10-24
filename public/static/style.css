@@ -1246,7 +1246,7 @@ body[data-play-stage="1"] .play-stat { display: none; }
 .play-page .tcard {
   border: 1px solid rgba(248, 250, 243, .62);
   background-color: #4f654d;
-  background-image: url('/static/ritual-botanical-mark.svg');
+  background-image: url('ritual-botanical-mark.svg');
   background-repeat: no-repeat;
   background-position: center;
   background-size: 54% 68%;
@@ -1257,7 +1257,7 @@ body[data-play-stage="1"] .play-stat { display: none; }
   transform-origin: 50% 50%;
   border: 1px solid rgba(248, 250, 243, .72);
   background-color: #4f654d;
-  background-image: url('/static/ritual-botanical-mark.svg');
+  background-image: url('ritual-botanical-mark.svg');
   background-repeat: no-repeat;
   background-position: center;
   background-size: 54% 68%;
@@ -1320,7 +1320,7 @@ body[data-play-stage="1"] .play-stat { display: none; }
   -webkit-backface-visibility: hidden;
 }
 .play-page .ritual-picked-back {
-  background: #4f654d url('/static/ritual-botanical-mark.svg') center / 54% 68% no-repeat;
+  background: #4f654d url('ritual-botanical-mark.svg') center / 54% 68% no-repeat;
   box-shadow: inset 0 0 0 2px rgba(248, 250, 243, .16), 0 4px 10px rgba(39, 56, 39, .25);
 }
 .play-page .ritual-picked-front {

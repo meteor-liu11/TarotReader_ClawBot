@@ -1,8 +1,38 @@
 /* ClawBot 正式会话适配器：为共享仪式页接入会话、牌序、解读与微信投递。 */
 const $ = (id) => document.getElementById(id);
-const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() ?? '');
+const query = new URLSearchParams(location.search);
+const pagesMode = query.has('api');
+const pathToken = location.pathname.match(/\/s\/([^/]+)\/?$/)?.[1] ?? '';
+const token = query.get('token') ?? (pathToken ? decodeURIComponent(pathToken) : '');
+let apiBase = location.origin;
+
+function configureApiBase() {
+  const configured = query.get('api');
+  if (!configured) {
+    if (location.hostname.endsWith('.github.io') && token) {
+      return '这个抽卡链接缺少本机服务连接，请回微信重新获取新链接。';
+    }
+    window.__CLAWBOT_API_BASE__ = apiBase;
+    return '';
+  }
+  let url;
+  try { url = new URL(configured); } catch { return '抽卡链接中的服务地址无效，请回微信重新获取新链接。'; }
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  const pagesHost = location.hostname.endsWith('.github.io');
+  const quickTunnel = url.protocol === 'https:'
+    && url.hostname.endsWith('.trycloudflare.com') && !url.port;
+  if ((pagesHost ? !quickTunnel : (!local && !quickTunnel && url.origin !== location.origin))
+      || (local && pagesHost) || url.username || url.password
+      || url.search || url.hash || url.pathname !== '/') {
+    return '抽卡链接中的服务地址不安全或格式不正确。';
+  }
+  apiBase = url.origin;
+  window.__CLAWBOT_API_BASE__ = apiBase;
+  return '';
+}
+
 const api = async (path, opts) => {
-  const res = await fetch(path, opts);
+  const res = await fetch(new URL(path.replace(/^\/+/, ''), `${apiBase}/`), opts);
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 };
@@ -122,10 +152,11 @@ function returnToWechat() {
 }
 
 async function loadWallet() {
-  const res = await api(`/api/me/${encodeURIComponent(token)}`);
+  const res = await api(`/api/credits/${encodeURIComponent(token)}`);
   if (res.ok) $('credits').textContent = `${res.data.credits} 点`;
 }
 
+$('btn-history').hidden = pagesMode;
 $('btn-retry-reading').addEventListener('click', () => generateReading());
 $('btn-return-wechat').addEventListener('click', returnToWechat);
 $('btn-redeem').addEventListener('click', async () => {
@@ -146,6 +177,7 @@ $('btn-redeem').addEventListener('click', async () => {
   }
 });
 $('btn-history').addEventListener('click', async () => {
+  if (pagesMode) return;
   const res = await api(`/api/me/${encodeURIComponent(token)}`);
   if (!res.ok) return;
   const rows = res.data.history ?? [];
@@ -157,6 +189,8 @@ $('btn-history').addEventListener('click', async () => {
 });
 
 async function init() {
+  const apiError = configureApiBase();
+  if (apiError) throw new Error(apiError);
   if (!token) throw new Error('链接中缺少会话编号');
   const res = await api(`/api/session/${encodeURIComponent(token)}`);
   if (!res.ok) throw new Error(res.data.error ?? '链接无效或已过期');
@@ -197,7 +231,7 @@ async function init() {
     clearNotice: () => showNotice(''),
     afterReveal: () => generateReading(),
   };
-  await import('/static/play.js?v=20261015-question-return-v4');
+  await import(new URL('./play.js?v=20261024-pages-v1', import.meta.url));
   startTimer(session.remainingMs);
 }
 
