@@ -142,12 +142,35 @@ try {
       && orderBeforeCut.some((id, index) => id !== index),
     `牌序前 8 张 ${JSON.stringify(orderBeforeCut.slice(0, 8))}`);
   await page.mouse.click(cv2.x + cv2.width / 2, cv2.y + cv2.height / 2 - 33);
+  await page.waitForTimeout(120);
+  const duringCut = await page.evaluate(() => window.__play.debug());
+  const guideCounts = await page.locator('.cut-guides i').evaluateAll((els) => els.map((el) => el.dataset.count));
+  const profiles = duringCut.cutProfiles ?? [];
+  const profilesIncrease = profiles.length === 5
+    && profiles.every((profile, index) => index === 0
+      || (profile.travelFraction > profiles[index - 1].travelFraction
+        && profile.liftPx > profiles[index - 1].liftPx
+        && profile.durationMs > profiles[index - 1].durationMs));
+  check('五个切牌指引直接标出对应张数',
+    guideCounts.join(',') === '12,24,39,54,66', guideCounts.join('/'));
+  check('五档厚度分别驱动递增的位移、抬升和动画时长',
+    profiles.map((profile) => profile.moveCount).join(',') === '12,24,39,54,66' && profilesIncrease,
+    JSON.stringify(profiles));
+  check('本次点选39张档位后，运行中的动画确实采用该档参数',
+    duringCut.cutAt[0] === 39 && duringCut.cutMotion?.moveCount === 39
+      && duringCut.cutMotion.travelFraction === profiles[2]?.travelFraction
+      && duringCut.cutMotion.liftPx === profiles[2]?.liftPx
+      && duringCut.cutMotion.durationMs === profiles[2]?.durationMs,
+    JSON.stringify({ selected: duringCut.cutAt[0], motion: duringCut.cutMotion }));
   await page.waitForTimeout(900);   // 等切牌动画演完
   const st2 = await page.evaluate(() => window.__play.debug());
   check('轻点牌堆只执行一次切牌', st2.cuts === 1, `cuts=${st2.cuts}`);
   check('切牌提供五档牌摞厚度',
     st2.cutChoices.join(',') === '12,24,39,54,66' && st2.cutChoices.includes(st2.cutAt[0]),
-    `可选 ${st2.cutChoices.join('/')} 张，上移 ${st2.cutAt.join('/')} 张`);
+    `可选 ${st2.cutChoices.join('/')} 张，上移 ${st2.cutAt.join('/')}`);
+  check('动画完成后记录本次采用的厚度参数',
+    st2.lastCutMotion?.moveCount === st2.cutAt[0] && st2.lastCutMotion?.moveCount === 39,
+    JSON.stringify(st2.lastCutMotion));
 
   // 切牌必须让原本较低的牌进入上层，而非只播放位移动画。
   const orderAfter = await page.evaluate(() => {

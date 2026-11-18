@@ -231,7 +231,7 @@ async function init() {
     clearNotice: () => showNotice(''),
     afterReveal: () => generateReading(),
   };
-  await import(new URL('./play.js?v=20261024-pages-v1', import.meta.url));
+  await import(new URL('./play.js?v=20261115-cut-motion-v1', import.meta.url));
   startTimer(session.remainingMs);
 }
 

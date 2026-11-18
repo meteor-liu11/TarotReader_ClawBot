@@ -1163,22 +1163,30 @@ body[data-play-stage="1"] .play-stat { display: none; }
 }
 .play-page #stage[data-stage="2"] .cut-guides { display: flex; }
 .play-page .cut-guides i {
-  display: block;
-  width: 8px;
-  height: 2px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 18px;
+  border: 1px solid rgba(113, 131, 109, .28);
   border-radius: 999px;
-  background: rgba(113, 131, 109, .64);
-  transition: width .16s, height .16s, background .16s, box-shadow .16s;
+  background: rgba(251, 250, 244, .94);
+  color: var(--ink-3);
+  box-shadow: 0 1px 4px rgba(53, 66, 56, .12);
+  font: 600 8px/1 var(--font-mono);
+  font-style: normal;
+  transition: width .16s, color .16s, border-color .16s, background .16s, box-shadow .16s;
 }
+.play-page .cut-guides i::after { content: attr(data-count); }
 .play-page #stage[data-cut-band="0"] .cut-guides i:nth-child(1),
 .play-page #stage[data-cut-band="1"] .cut-guides i:nth-child(2),
 .play-page #stage[data-cut-band="2"] .cut-guides i:nth-child(3),
 .play-page #stage[data-cut-band="3"] .cut-guides i:nth-child(4),
 .play-page #stage[data-cut-band="4"] .cut-guides i:nth-child(5) {
-  width: 13px;
-  height: 3px;
+  width: 28px;
+  color: #fbfaf4;
+  border-color: #4f654d;
   background: #4f654d;
-  box-shadow: 0 0 0 4px rgba(113, 131, 109, .14);
+  box-shadow: 0 0 0 3px rgba(113, 131, 109, .16), 0 2px 6px rgba(53, 66, 56, .18);
 }
 
 .play-page .sheet-backdrop { background: rgba(53, 66, 56, .26); }
@@ -1356,22 +1364,22 @@ body[data-play-stage="1"] .play-stat { display: none; }
 .play-page .ritual-picked-index {
   position: absolute;
   z-index: 2;
-  top: -6px;
-  left: -6px;
-  width: 19px;
-  height: 19px;
+  top: -8px;
+  left: 50%;
+  width: auto;
+  min-width: 18px;
+  height: 16px;
+  padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(79, 101, 77, .58);
-  border-radius: 50%;
-  background: #f8faf3;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #354238;
-  font: 700 9px/1 var(--font-mono);
-  box-shadow: 0 1px 4px rgba(39, 56, 39, .18);
-}
-
-@media (max-width: 430px) {
-  .play-page .ritual-picked-index { width: 16px; height: 16px; font-size: 8px; }
+  font: 700 var(--fs-micro)/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+  transform: translate(-50%, -100%);
 }
 
 /* Tarotap 式牌库窗口：一条重叠的弧形牌扇在框内横向浏览，不做多排网格。 */
@@ -1404,7 +1412,7 @@ body[data-play-stage="1"] .play-stat { display: none; }
   display: block;
   margin: 0;
   aspect-ratio: auto;
-  transform-origin: 50% 86%;
+  transform-origin: 50% var(--fan-pivot-y, 86%);
 }
 .play-page #fan-viewport.is-reflowing #table.card-fan-strip .tcard.fan-card {
   transition: transform .28s cubic-bezier(.2, .72, .24, 1);
@@ -1423,17 +1431,18 @@ body.play-page[data-play-stage="3"] #fan-label-layer { display: block; }
   position: absolute;
   width: 18px;
   height: 16px;
-  padding: 0 1px;
+  padding: 0;
   display: grid;
   place-items: center;
-  border-radius: 4px;
-  background: rgba(248, 250, 243, .96);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #354238;
   font: 700 var(--fs-micro)/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 1px 3px rgba(24, 41, 25, .20);
+  box-shadow: none;
   pointer-events: none;
-  transform: translateX(-50%);
+  transform: translate(-50%, -100%);
 }
 .play-page #fan-viewport:focus-visible { outline: 2px solid rgba(79, 101, 77, .48); outline-offset: 2px; }
 

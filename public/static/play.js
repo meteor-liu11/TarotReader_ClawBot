@@ -54,6 +54,7 @@ const S = {
   cuts: 0,
   cutAt: [],
   cutAnim: null,
+  cutMotionLast: null,
   shuffleTrace: [],
   shuffleStroke: null,
   picks: [],
@@ -81,6 +82,23 @@ let W = 0; let H = 0; let cx = 0; let cy = 0;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const ease = (t, a, b) => { const x = clamp((t - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function cutMotionProfile(moveCount) {
+  const min = CUT_MOVES[0];
+  const max = CUT_MOVES[CUT_MOVES.length - 1];
+  const ratio = max > min ? clamp((moveCount - min) / (max - min), 0, 1) : 0;
+  return {
+    moveCount,
+    ratio: Number(ratio.toFixed(4)),
+    travelFraction: Number((0.12 + ratio * 0.08).toFixed(4)),
+    liftPx: Number((10 + ratio * 16).toFixed(2)),
+    durationMs: Math.round(520 + ratio * 200),
+  };
+}
+
+document.querySelectorAll('.cut-guides i').forEach((guide, index) => {
+  if (CUT_MOVES[index] !== undefined) guide.dataset.count = String(CUT_MOVES[index]);
+});
 
 // ══ 建牌 ══════════════════════════════════════════════════
 for (let i = 0; i < TOTAL; i++) {
@@ -217,17 +235,17 @@ function cutLayer(i) {
 }
 
 function cutTarget(i) {
-  const { t, split, oldOrder } = S.cutAnim;
+  const { t, moveCount, travelFraction, liftPx, oldOrder } = S.cutAnim;
   const oldIdx = oldOrder.indexOf(i);
   const layer = cutLayer(i);
-  const wasUpper = oldIdx >= TOTAL - split;
+  const wasUpper = oldIdx >= moveCount;
   const opening = ease(t, 0.04, 0.30);
   const closing = ease(t, 0.67, 0.98);
   const apart = opening * (1 - closing);
   const side = wasUpper ? -1 : 1;
   return {
-    x: cx + side * W * 0.18 * apart + ((i % 3) - 1) * 1.4,
-    y: cy - layer * STACK_STEP - 6 + (wasUpper ? -18 : 18) * apart,
+    x: cx + side * W * travelFraction * apart + ((i % 3) - 1) * 1.4,
+    y: cy - layer * STACK_STEP - 6 + (wasUpper ? -liftPx : liftPx) * apart,
     rot: ((i % 5) - 2) * 0.013,
     sc: 1, a: 1,
   };
@@ -259,18 +277,32 @@ function layoutFanViewport() {
   fanLabelLayer.style.height = `${height}px`;
 }
 
+const FAN_PIVOT_Y = 0.86;
+const FAN_LABEL_HEIGHT = 16;
+const FAN_LABEL_GAP = 8;
+const FAN_MAX_T = 1.25;
+const FAN_TILT = 0.46;
+
 function configureFanStrip() {
   const viewportWidth = fanViewport.clientWidth;
-  const viewportHeight = fanViewport.clientHeight;
+  const viewportHeight = Math.max(0, fanViewport.clientHeight - 6);
   if (!viewportWidth || !viewportHeight) return;
-  const cardWidth = clamp(60, W * 0.12, 96);
+  // 小窗口也为牌外数字留出空间；不靠把数字压回牌面来避免裁切。
+  const aspect = 5 / 3;
+  const pivotRatio = aspect * FAN_PIVOT_Y;
+  const cornerRiseRatio = Math.hypot(0.5, pivotRatio) - pivotRatio;
+  const heightRatio = aspect + 0.66 * FAN_MAX_T ** 2
+    + 0.5 * Math.sin(FAN_MAX_T * FAN_TILT) + cornerRiseRatio;
+  const widthLimit = (viewportHeight - FAN_LABEL_HEIGHT - FAN_LABEL_GAP - 4) / heightRatio;
+  const cardWidth = Math.min(clamp(W * 0.12, 60, 96), Math.max(24, widthLimit));
   const cardHeight = cardWidth * 5 / 3;
-  const step = cardWidth * 0.36;
+  const step = Math.max(20, cardWidth * 0.36);
   const padding = 16;
   const trackWidth = padding * 2 + cardWidth + step * Math.max(0, TOTAL - S.picks.length - 1);
   const arcDepth = Math.min(viewportHeight * 0.24, cardWidth * 0.66);
   table.style.width = `${trackWidth}px`;
   table.style.height = `${viewportHeight}px`;
+  table.style.setProperty('--fan-pivot-y', `${FAN_PIVOT_Y * 100}%`);
   S.fanGeometry = { viewportWidth, viewportHeight, cardWidth, cardHeight, step, padding, trackWidth, arcDepth };
   updateFanShape();
 }
@@ -278,14 +310,25 @@ function configureFanStrip() {
 function updateFanShape() {
   const g = S.fanGeometry;
   if (!g || S.stage !== 3) return;
-  const scrollLeft = fanViewport.scrollLeft;
-  const focusWorldX = scrollLeft + g.viewportWidth / 2;
-  const halfSpan = Math.max(2, (g.viewportWidth / 2 + g.cardWidth / 2) / g.step);
-  const baseY = Math.max(0, (g.viewportHeight - g.cardHeight - g.arcDepth) / 2);
   const labels = fanLabelLayer.children;
   const remaining = Math.max(1, S.order.length - S.picks.length);
   const trackWidth = g.padding * 2 + g.cardWidth + g.step * (remaining - 1);
   table.style.width = `${trackWidth}px`;
+  // 先更新轨道宽度，再读取浏览器可能已夹限的 scrollLeft。
+  const scrollLeft = fanViewport.scrollLeft;
+  const focusWorldX = scrollLeft + g.viewportWidth / 2;
+  const halfSpan = Math.max(2, (g.viewportWidth / 2 + g.cardWidth / 2) / g.step);
+  const pivotY = g.cardHeight * FAN_PIVOT_Y;
+  const cornerRise = Math.hypot(g.cardWidth / 2, pivotY) - pivotY;
+  const minBaseY = FAN_LABEL_HEIGHT + FAN_LABEL_GAP + cornerRise + 2;
+  const maxBaseY = g.viewportHeight - g.cardHeight - g.arcDepth * FAN_MAX_T ** 2
+    - g.cardWidth / 2 * Math.sin(FAN_MAX_T * FAN_TILT) - 2;
+  const baseY = clamp((g.viewportHeight - g.cardHeight - g.arcDepth) / 2,
+    minBaseY, Math.max(minBaseY, maxBaseY));
+  const offsetX = fanViewport.offsetLeft - fanLabelLayer.offsetLeft + fanViewport.clientLeft;
+  const offsetY = fanViewport.offsetTop - fanLabelLayer.offsetTop + fanViewport.clientTop;
+  const reflowing = fanViewport.classList.contains('is-reflowing');
+  const labelTargets = [];
   let visiblePosition = 0;
 
   for (let position = 0; position < S.order.length; position++) {
@@ -301,9 +344,9 @@ function updateFanShape() {
     el.classList.toggle('is-pending', S.pendingPick === id);
     const x = g.padding + visiblePosition * g.step;
     const centerX = x + g.cardWidth / 2;
-    const t = clamp((centerX - focusWorldX) / (halfSpan * g.step), -1.25, 1.25);
+    const t = clamp((centerX - focusWorldX) / (halfSpan * g.step), -FAN_MAX_T, FAN_MAX_T);
     const y = baseY + g.arcDepth * t * t;
-    const rotation = t * 0.46;
+    const rotation = t * FAN_TILT;
     el.style.width = `${g.cardWidth}px`;
     el.style.height = `${g.cardHeight}px`;
     el.style.left = '0px';
@@ -312,12 +355,32 @@ function updateFanShape() {
     el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rotation}rad)`;
 
     if (label) {
-      label.style.left = `${x - scrollLeft + 1 + g.cardWidth / 2}px`;
-      label.style.top = `${y + 5}px`;
-      label.style.zIndex = String(100 + visiblePosition);
-      label.style.display = 'grid';
+      // X 对准旋转后的牌顶中点，Y 放在整张牌最高边缘之上。
+      const anchorX = centerX + pivotY * Math.sin(rotation) - scrollLeft + offsetX;
+      const anchorY = y + pivotY * (1 - Math.cos(rotation))
+        - g.cardWidth / 2 * Math.abs(Math.sin(rotation)) - FAN_LABEL_GAP + offsetY;
+      labelTargets.push({ el, label, x: anchorX, y: anchorY, z: 100 + visiblePosition });
     }
     visiblePosition++;
+  }
+
+  // 只在补位过渡中读取可见卡牌的实际矩阵，避免数字提前跳到目标位置。
+  // 先完成卡牌写入，再集中读取，最后写数字，不逐张交替触发布局。
+  const layerRect = reflowing ? fanLabelLayer.getBoundingClientRect() : null;
+  if (layerRect) {
+    for (const target of labelTargets) {
+      if (target.x < -g.cardWidth * 2 || target.x > g.viewportWidth + g.cardWidth * 2) continue;
+      const rect = target.el.getBoundingClientRect();
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(target.el).transform);
+      target.x = rect.left + rect.width / 2 + g.cardHeight / 2 * matrix.b - layerRect.left;
+      target.y = rect.top - FAN_LABEL_GAP - layerRect.top;
+    }
+  }
+  for (const target of labelTargets) {
+    target.label.style.left = `${target.x}px`;
+    target.label.style.top = `${target.y}px`;
+    target.label.style.zIndex = String(target.z);
+    target.label.style.display = 'grid';
   }
 }
 
@@ -367,11 +430,13 @@ function frame(now) {
       apply(i);
     }
     if (S.cutAnim) {
-      S.cutAnim.t += dt * 1.45;
+      S.cutAnim.t += dt * 1000 / S.cutAnim.durationMs;
       if (S.cutAnim.t >= 1) {
+        const moveCount = S.cutAnim.moveCount;
         S.order = S.cutAnim.newOrder;
         S.cutAnim = null;
         delete stage.dataset.cutBand;
+        $('spread-desc').textContent = `已将下方 ${moveCount} 张翻到上面`;
         updateUI();
       }
     }
@@ -833,6 +898,7 @@ function doCut(p) {
   const band = clamp(Math.floor((p.y - stackTop) / (stackHeight / CUT_MOVES.length)), 0, CUT_MOVES.length - 1);
   stage.dataset.cutBand = String(band);
   const moveCount = CUT_MOVES[band];
+  const motion = cutMotionProfile(moveCount);
   const split = TOTAL - moveCount;
   const oldOrder = [...S.order];
   const upper = oldOrder.slice(moveCount);
@@ -843,8 +909,10 @@ function doCut(p) {
     S.deckBuilt.gesture.cuts = S.cuts;
     S.deckBuilt.gesture.cutAt = [...S.cutAt];
   }
-  // 五档厚度按 12/24/39/54/66 张取下摞；动画和最终数组做同一段旋转。
-  S.cutAnim = { t: 0, split, oldOrder, newOrder: [...upper, ...lower] };
+  // 厚度决定真实切牌数量，也按比例决定分离距离、抬升量和动画时长。
+  S.cutMotionLast = { ...motion };
+  S.cutAnim = { t: 0, split, oldOrder, newOrder: [...upper, ...lower], ...motion };
+  $('spread-desc').textContent = `正在将下方 ${moveCount} 张翻到上面…`;
   updateUI();
 }
 
@@ -925,7 +993,7 @@ function resetGesture() {
   S.shuffleDurationMs = 0; S.shuffleSubmitting = false; S.pickIndexes = [];
   S.drawError = false;
   S.pendingPick = null;
-  S.cutAnim = null; S.shuffleTrace = []; S.shuffleStroke = null;
+  S.cutAnim = null; S.cutMotionLast = null; S.shuffleTrace = []; S.shuffleStroke = null;
   S.gridDrag = null; S.gridMomentum = { x: 0, y: 0 };
   S.fanGeometry = null;
   S.deckBuilt = null;
@@ -987,7 +1055,7 @@ $('btn-main').addEventListener('click', async () => {
     S.deckBuilt.initialDeck = [...S.deckBuilt.deck];
     S.order = [...S.deckBuilt.deck];
     gotoStage(2);
-    $('spread-desc').textContent = '点牌堆选厚度，让下摞翻到上面';
+    $('spread-desc').textContent = `点牌堆不同高度选 ${CUT_MOVES.join(' / ')} 张`;
     $('float-top').textContent = '';
     $('float-bottom').textContent = '';
   } else if (S.stage === 2) {
@@ -1175,6 +1243,15 @@ window.__play = {
       stage: S.stage, stir: Math.round(S.stir), cuts: S.cuts,
       fanVelocity: Number(Math.abs(S.gridMomentum.x).toFixed(2)), revealed: S.revealed,
       seatCount: S.pickedSeats.filter(Boolean).length, cutAt: [...S.cutAt], cutChoices: [...CUT_MOVES],
+      cutMotion: S.cutAnim ? {
+        moveCount: S.cutAnim.moveCount,
+        progress: Number(S.cutAnim.t.toFixed(3)),
+        travelFraction: S.cutAnim.travelFraction,
+        liftPx: S.cutAnim.liftPx,
+        durationMs: S.cutAnim.durationMs,
+      } : null,
+      lastCutMotion: S.cutMotionLast ? { ...S.cutMotionLast } : null,
+      cutProfiles: CUT_MOVES.map(cutMotionProfile),
       visibleCards: live.length,
       fanCards: table.querySelectorAll('.tcard.fan-card:not(.clone)').length,
       picks: [...S.picks], pickIndexes: [...S.pickIndexes], pendingPick: S.pendingPick,
